@@ -1,0 +1,10 @@
+name: doenamer
+version: 0.5
+author: Benjamin Beckwith <bnbeckwith@gmail.com>
+about: Name those does!
+args:
+  - WORD:
+      help: Sets the word to use
+      required: true
+      multiple: true
+      index: 1

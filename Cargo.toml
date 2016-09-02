@@ -1,0 +1,9 @@
+[package]
+name = "doenamer"
+version = "0.1.0"
+authors = ["Ben Beckwith <ben@mutuallyhuman.com>"]
+
+[dependencies]
+strsim = "0.5.0"
+clap = { version = "2", features = ["yaml"] }
+regex = "0.1.73"
