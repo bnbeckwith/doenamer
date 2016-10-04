@@ -1,86 +1,88 @@
 #[macro_use]
 extern crate clap;
-use clap::App;
+use clap::{App, Arg, SubCommand};
 
-// Structures
-use std::collections::HashMap;
-
-// Regex
-extern crate regex;
-use regex::Regex;
-
-// String Comparisons
-extern crate strsim;
-use strsim::damerau_levenshtein;
-
-const DICT: &'static str = include_str!("data/cmudict-0.7b");
-
-struct Words<'a> {
-    dictionary: HashMap<&'a str, &'a str>
-}
-
-impl<'a> Words<'a> {
-    fn new() -> Words<'a> {
-        let mut hash: HashMap<&'a str, &'a str> = HashMap::new();
-        for line in DICT.lines(){
-            let mut iter = line.splitn(2,' ');
-            hash.insert(iter.next().unwrap(), iter.next().unwrap());
-        }
-        Words{dictionary: hash}
-    }
-
-    fn phoneme_suffix(&self,phoneme: &str) -> String {
-        let s_iter = phoneme.split(" ");
-        let suffix_re = Regex::new(r".*\d").unwrap();
-        let sounds: Vec<&str> = s_iter.skip_while(|x| !suffix_re.is_match(x)).collect();
-        sounds.join(" ")
-    }
-
-    fn rhymes(&self, a: &str, b: &str) -> bool {
-        let suffix = self.phoneme_suffix(a);
-        let re = Regex::new(&suffix).unwrap();
-        re.is_match(self.find_phoneme(b))
-    }
-
-    fn find_rhymes(&self, word: &str) -> Vec<&'a str> {
-        let phoneme: &str = self.find_phoneme(word);
-
-        let mut rhymes: Vec<&'a str> = Vec::new();
-
-        let suffix: String = self.phoneme_suffix(phoneme);
-
-        println!("Suffix: {}", suffix);
-
-        let re = Regex::new(&suffix).unwrap();
-        for (key, val) in self.dictionary.iter(){
-            if re.is_match(val){
-                rhymes.push(key)
-            }
-        }
-
-        rhymes.sort_by(|a, b| damerau_levenshtein(a, phoneme).cmp(&damerau_levenshtein(b, phoneme)));
-        rhymes
-    }
-
-    fn find_phoneme(&self, word: &str) -> &str {
-        let phoneme: &str;
-        match self.dictionary.get(word) {
-            Some(s) => phoneme = s,
-            None => panic!("{} not found in dictionary.")
-        }
-        phoneme
-    }
-}
+extern crate doenamer;
+use doenamer::Words;
 
 fn main() {
-    let yaml = load_yaml!("cli.yml");
-    let matches = App::from_yaml(yaml).get_matches();
     let ws = Words::new();
 
-    let word: &str = &matches.value_of("WORD").unwrap().to_uppercase();
-    println!("Using word: {} {}", word, ws.find_phoneme(word));
+    let matches = App::new("Doe-namer")
+        .subcommand(SubCommand::with_name("game")
+                    .about("Play a rhyming game")
+                    .arg(Arg::with_name("fuzz")
+                         .short("z")
+                         .help("Fuzz factor for correctness")
+                    )
+                    .arg(Arg::with_name("length")
+                    .help("Length of game")))
+        .subcommand(SubCommand::with_name("words")
+                    .about("Known words list")
+                    .arg(Arg::with_name("popular")
+                         .short("p")
+                         .long("popular")
+                         .help("List by popularity")))
+        .subcommand(SubCommand::with_name("distance")
+                    .about("Edit distance between words")
+                    .version("0.1")
+                    .arg(Arg::with_name("WORD1")
+                         .help("First word")
+                         .index(1)
+                         .required(true))
+                    .arg(Arg::with_name("WORD2")
+                         .help("Second word")
+                         .index(2)
+                         .required(true)))
+        .subcommand(SubCommand::with_name("rhyme")
+                    .about("Finds rhymes")
+                    .version("0.1")
+                    .arg(Arg::with_name("fuzz")
+                         .short("z")
+                         .long("fuzz"))
+                    .arg(Arg::with_name("number")
+                         .short("n")
+                         .long("number")
+                         .help("Number of results to return")
+                         .takes_value(true))
+                    .arg(Arg::with_name("WORD")
+                         .help("Word to rhyme")
+                         .index(1)
+                         .required(true))).get_matches();
 
-    for rhyme in ws.find_rhymes(word).iter() {
-        println!("{}", rhyme)
+    match matches.subcommand() {
+        ("distance", Some(sub_m)) =>
+        {
+            println!("Distance of {} to {}: {}",
+                     sub_m.value_of("WORD1").unwrap().to_uppercase(),
+                     sub_m.value_of("WORD2").unwrap().to_uppercase(),
+                     ws.phoneme_distance(
+                         &sub_m.value_of("WORD1").unwrap().to_uppercase(),
+                         &sub_m.value_of("WORD2").unwrap().to_uppercase()))},
+        ("rhyme", Some(sub_m)) => {
+            let word: &str = &sub_m.value_of("WORD").unwrap().to_uppercase();
+            println!("Using word: {} {}", word, ws.find_phoneme(word));
+
+            let rhymes = ws.find_rhymes(word);
+            let mut number_of_items: usize = rhymes.len();
+
+            println!("Number of items: {}", number_of_items);
+
+            if let Some(limit) = sub_m.value_of("number") {
+                println!("limit: {}", limit);
+                number_of_items = limit.parse::<usize>().unwrap_or(number_of_items);
+            }
+
+            println!("Number of items: {}", number_of_items);
+
+            for rhyme in rhymes.iter().take(number_of_items) {
+                println!("{}", rhyme);
+            }},
+        ("words", Some(_)) => {
+            for word in ws.wordlist() {
+                println!("{}", word);
+            }
+        },
+        _ => println!("Incorrect subcommand")
     }
 }
