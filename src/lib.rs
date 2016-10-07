@@ -1,5 +1,12 @@
+// modules
+pub mod game;
+
+// Random utilities
+extern crate rand;
+
 // Structures
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 // Lazy Static
 #[macro_use]
@@ -12,6 +19,20 @@ use regex::Regex;
 // String Comparisons
 extern crate strsim;
 use strsim::damerau_levenshtein;
+
+// Dictionary of most common words
+const MOSTCOMMON: &'static str = include_str!("data/mostcommon");
+
+// List of most common words
+lazy_static! {
+    pub static ref COMMONS: HashSet<&'static str> = {
+        let mut words = HashSet::new();
+        for line in MOSTCOMMON.lines() {
+            words.insert(line);
+        }
+        words
+    };
+}
 
 // Dictionary of phonemes
 const DICT: &'static str = include_str!("data/cmudict-0.7b");
@@ -29,25 +50,55 @@ lazy_static! {
 }
 
 /// The `Words` struct.
-pub struct Words<'a> {
-    dictionary: HashMap<&'a str, &'a str>
+pub struct Words<> {
+    limit: usize,
+    only_common: bool,
+    debug_level: u64
 }
 
-impl<'a> Words<'a> {
-    pub fn new() -> Words<'a> {
-        let mut hash: HashMap<&'a str, &'a str> = HashMap::new();
-        for line in DICT.lines(){
-            let mut iter = line.splitn(2,' ');
-            hash.insert(iter.next().unwrap(), iter.next().unwrap());
+impl<> Words<> {
+    pub fn new(only_common: bool, limit: Option<usize>, debug_level: u64) -> Words<> {
+        Words{
+            only_common: only_common,
+            limit: limit.unwrap_or(PHONEMES.len()),
+            debug_level: debug_level
         }
-        Words{dictionary: hash}
     }
 
-    pub fn wordlist(&self) -> Vec<&'a str> {
-        let mut words: Vec<&'a str> = Vec::new();
+    pub fn wordlist(&self) -> Vec<&str> {
+        let mut words: Vec<&str> = Vec::new();
 
-        for (key, _) in self.dictionary.iter() {
+        for (key, _) in PHONEMES.iter() {
             words.push(key);
+        }
+
+        words.sort();
+        words
+    }
+
+    fn compact<'a>(&'a self, mut items: Vec<&'a str>) -> Vec<&str> {
+
+        if self.only_common {
+            if self.debug_level > 1 {
+                println!("Using only common words");
+            }
+
+            let result_set: HashSet<&str> = items.into_iter().collect();
+            items = COMMONS.intersection(&result_set).map(|s| s.to_owned()).collect::<Vec<&str>>();
+        }
+
+        if self.debug_level > 1 {
+            println!("Limiting to {}", self.limit);
+        }
+
+       items.into_iter().take(self.limit).collect()
+    }
+
+    pub fn common(&self) -> Vec<&str> {
+        let mut words: Vec<&str> = Vec::new();
+
+        for word in COMMONS.iter() {
+            words.push(word);
         }
 
         words.sort();
@@ -67,17 +118,19 @@ impl<'a> Words<'a> {
         re.is_match(self.find_phoneme(b))
     }
 
-    pub fn find_rhymes(&self, word: &str) -> Vec<&'a str> {
+    pub fn find_rhymes(&self, word: &str) -> Vec<&str> {
         let phoneme: &str = self.find_phoneme(word);
 
-        let mut rhymes: Vec<&'a str> = Vec::new();
+        let mut rhymes: Vec<&str> = Vec::new();
 
         let suffix: String = self.phoneme_suffix(phoneme);
 
-        println!("Suffix: {}", suffix);
+        if self.debug_level > 0 {
+            println!("Suffix: {}", suffix);
+        }
 
         let re = Regex::new(&suffix).unwrap();
-        for (key, val) in self.dictionary.iter(){
+        for (key, val) in PHONEMES.iter(){
             if re.is_match(val){
                 rhymes.push(key)
             }
@@ -88,14 +141,16 @@ impl<'a> Words<'a> {
         let base = self.phoneme_distance(word,rhymes.first().unwrap()) + 2;
         rhymes.retain(|x| self.phoneme_distance(x, word) <= base);
 
-        rhymes
+        self.compact(rhymes)
     }
 
     pub fn find_phoneme(&self, word: &str) -> &str {
-        self.dictionary.get(word).expect("{} not found in dictionary")
+        PHONEMES.get(word).expect("{} not found in dictionary")
     }
 
     pub fn phoneme_distance(&self, a: &str, b: &str) -> usize {
         damerau_levenshtein(self.find_phoneme(a),self.find_phoneme(b))
     }
+
 }
+
