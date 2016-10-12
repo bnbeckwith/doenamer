@@ -49,25 +49,33 @@ lazy_static! {
     };
 }
 
+pub struct ScoredWord<'a> {
+    word: &'a str,
+    score: usize
+}
+
 /// `WordsConfig` holds all configuration parameters for DOE-(wait for it)-NAMER. HAHAHAHAHA!
 pub struct DoenamerConfig {
     limit: usize,
     only_common: bool,
     debug_level: u64,
-    fuzz: u64
+    fuzz: u64,
+    homophones: bool,
 }
 
 impl DoenamerConfig {
     pub fn new(limit: Option<usize>,
                only_common: bool,
                debug_level: u64,
-               fuzz: u64
+               fuzz: u64,
+               homophones: bool
     ) -> DoenamerConfig {
         DoenamerConfig {
             only_common: only_common,
             limit: limit.unwrap_or(PHONEMES.len()),
             fuzz: fuzz,
-            debug_level: debug_level
+            debug_level: debug_level,
+            homophones: homophones
         }
     }
 }
@@ -143,7 +151,7 @@ impl Rhymely {
             None => return Err(word)
         };
 
-        let mut rhymes: Vec<&str> = Vec::new();
+        let mut rhymes: Vec<ScoredWord> = Vec::new();
 
         let suffix: String = self.phoneme_suffix(phoneme);
 
@@ -152,24 +160,44 @@ impl Rhymely {
         }
 
         let re = Regex::new(&suffix).unwrap();
-        for (key, val) in PHONEMES.iter(){
-            if re.is_match(val){
-                rhymes.push(key)
+        for (key, val) in PHONEMES.iter() {
+            if *key == word {
+                continue;
+            }
+            if re.is_match(val) {
+                let score = self.phoneme_distance(word, key).unwrap();
+
+                if (score > 0) || self.config.homophones {
+                    rhymes.push(
+                        ScoredWord {
+                            word: key,
+                            score: score
+                        })
+                }
             }
         }
 
-        rhymes.sort_by_key(|k| self.phoneme_distance(word, k));
-        // Remove yourself
-        rhymes.remove(0);
+        // Sort by scoring
+        rhymes.sort_by_key(|k| k.score);
 
-        // Handle empty case here.
-        if rhymes.len() < 1 {
-            return Ok(rhymes)
+        let mut num_changes = self.config.fuzz + 2;
+        if self.config.homophones {
+            num_changes += 1
+        }
+        let mut current_score = 0;
+        let mut results: Vec<&str> = Vec::new();
+
+        for rhyme in &rhymes {
+            if rhyme.score > current_score {
+                num_changes -= 1;
+                current_score = rhyme.score;
+            }
+            if num_changes == 0 { break; }
+
+            results.push(rhyme.word)
         }
 
-        let base = self.phoneme_distance(word, *rhymes.first().unwrap()).unwrap();
-        rhymes.retain(|x| self.phoneme_distance(x, word).unwrap() <= base);
-        Ok(self.compact(rhymes))
+        Ok(self.compact(results))
     }
 
     pub fn find_phoneme(&self, word: &str) -> Option<&str> {

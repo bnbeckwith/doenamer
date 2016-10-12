@@ -8,6 +8,10 @@ use doenamer::{DoenamerConfig,Rhymely};
 fn main() {
 
     let matches = App::new("Doe-namer")
+        .arg(Arg::with_name("homophones")
+             .short("H")
+             .long("homophones")
+             .help("Keep homophones"))
         .arg(Arg::with_name("single-line")
              .short("1")
              .help("Single-line output"))
@@ -66,8 +70,9 @@ fn main() {
         DoenamerConfig::new(
             limit,
             matches.is_present("common-only"),
-            matches.occurrences_of("z"),
-            matches.occurrences_of("D")
+            matches.occurrences_of("D"),
+            matches.occurrences_of("fuzz"),
+            matches.is_present("homophones")
         ));
 
     match matches.subcommand() {
@@ -96,7 +101,6 @@ fn main() {
         },
         ("rhyme", Some(sub_m)) => {
             let word: &str = &sub_m.value_of("WORD").unwrap().to_uppercase();
-            //println!("Using word: {} {}", word, ws.find_phoneme(word));
 
             match rhmly.find_rhymes(word){
                 Ok(rhymes) => {
