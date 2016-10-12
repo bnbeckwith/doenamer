@@ -3,11 +3,14 @@ extern crate clap;
 use clap::{App, Arg, SubCommand};
 
 extern crate doenamer;
-use doenamer::Words;
+use doenamer::{DoenamerConfig,Rhymely};
 
 fn main() {
 
     let matches = App::new("Doe-namer")
+        .arg(Arg::with_name("single-line")
+             .short("1")
+             .help("Single-line output"))
         .arg(Arg::with_name("D")
              .short("D")
              .multiple(true)
@@ -21,11 +24,12 @@ fn main() {
              .short("c")
              .long("common-only")
              .help("Restrict results to the most common words"))
+        .arg(Arg::with_name("fuzz")
+             .short("z")
+             .multiple(true)
+             .help("Fuzz factor for correctness"))
         .subcommand(SubCommand::with_name("game")
                     .about("Play a rhyming game")
-                    .arg(Arg::with_name("fuzz")
-                         .short("z")
-                         .help("Fuzz factor for correctness"))
                     .arg(Arg::with_name("length")
                     .help("Length of game")))
         .subcommand(SubCommand::with_name("words")
@@ -46,9 +50,6 @@ fn main() {
         .subcommand(SubCommand::with_name("rhyme")
                     .about("Finds rhymes")
                     .version("0.1")
-                    .arg(Arg::with_name("fuzz")
-                         .short("z")
-                         .long("fuzz"))
                     .arg(Arg::with_name("WORD")
                          .help("Word to rhyme")
                          .index(1)
@@ -59,9 +60,15 @@ fn main() {
         limit = number.parse::<usize>().ok();
     }
 
-    let ws = Words::new(matches.is_present("common-only"),
-                        limit,
-                        matches.occurrences_of("D"));
+    let single_line = matches.is_present("single-line");
+
+    let rhmly = Rhymely::new(
+        DoenamerConfig::new(
+            limit,
+            matches.is_present("common-only"),
+            matches.occurrences_of("z"),
+            matches.occurrences_of("D")
+        ));
 
     match matches.subcommand() {
         ("game", _) =>
@@ -70,29 +77,42 @@ fn main() {
         }
         ("common", _) =>
         {
-            for word in ws.common().iter() {
+            for word in rhmly.common().iter() {
                 println!("{}", word);
             }
         },
         ("distance", Some(sub_m)) =>
         {
-            println!("Distance of {} to {}: {}",
-                     sub_m.value_of("WORD1").unwrap().to_uppercase(),
-                     sub_m.value_of("WORD2").unwrap().to_uppercase(),
-                     ws.phoneme_distance(
-                         &sub_m.value_of("WORD1").unwrap().to_uppercase(),
-                         &sub_m.value_of("WORD2").unwrap().to_uppercase()))},
+            let (word1, word2) =
+                (sub_m.value_of("WORD1").unwrap().to_uppercase(),
+                 sub_m.value_of("WORD2").unwrap().to_uppercase());
+            match rhmly.phoneme_distance(word1.as_str(),word2.as_str()) {
+                Ok(distance) => println!("Distance of {} to {}: {}",
+                                         word1,
+                                         word2,
+                                         distance),
+                Err(error)   => println!("Error: {}", error)
+            }
+        },
         ("rhyme", Some(sub_m)) => {
             let word: &str = &sub_m.value_of("WORD").unwrap().to_uppercase();
             //println!("Using word: {} {}", word, ws.find_phoneme(word));
 
-            let rhymes = ws.find_rhymes(word);
-
-            for rhyme in rhymes.iter() {
-                println!("{}", rhyme);
-            }},
+            match rhmly.find_rhymes(word){
+                Ok(rhymes) => {
+                    if single_line {
+                        println!("{}", rhymes.join(" "));
+                    }else{
+                        for rhyme in rhymes.iter() {
+                            println!("{}", rhyme);
+                        }
+                    }
+                },
+                Err(error) => println!("Error: Word not found, {}", error)
+            };
+        },
         ("words", Some(_)) => {
-            for word in ws.wordlist() {
+            for word in rhmly.wordlist() {
                 println!("{}", word);
             }
         },

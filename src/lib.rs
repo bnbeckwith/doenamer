@@ -49,19 +49,38 @@ lazy_static! {
     };
 }
 
-/// The `Words` struct.
-pub struct Words<> {
+/// `WordsConfig` holds all configuration parameters for DOE-(wait for it)-NAMER. HAHAHAHAHA!
+pub struct DoenamerConfig {
     limit: usize,
     only_common: bool,
-    debug_level: u64
+    debug_level: u64,
+    fuzz: u64
 }
 
-impl<> Words<> {
-    pub fn new(only_common: bool, limit: Option<usize>, debug_level: u64) -> Words<> {
-        Words{
+impl DoenamerConfig {
+    pub fn new(limit: Option<usize>,
+               only_common: bool,
+               debug_level: u64,
+               fuzz: u64
+    ) -> DoenamerConfig {
+        DoenamerConfig {
             only_common: only_common,
             limit: limit.unwrap_or(PHONEMES.len()),
+            fuzz: fuzz,
             debug_level: debug_level
+        }
+    }
+}
+
+/// The `Words` struct.
+pub struct Rhymely {
+    config: DoenamerConfig
+}
+
+impl Rhymely {
+    pub fn new(config: DoenamerConfig) -> Rhymely<> {
+        Rhymely{
+            config: config
         }
     }
 
@@ -78,20 +97,20 @@ impl<> Words<> {
 
     fn compact<'a>(&'a self, mut items: Vec<&'a str>) -> Vec<&str> {
 
-        if self.only_common {
-            if self.debug_level > 1 {
+        if self.config.only_common {
+            if self.config.debug_level > 1 {
                 println!("Using only common words");
             }
 
             let result_set: HashSet<&str> = items.into_iter().collect();
-            items = COMMONS.intersection(&result_set).map(|s| s.to_owned()).collect::<Vec<&str>>();
+            items = COMMONS.intersection(&result_set).map(|s| *s).collect::<Vec<&str>>();
         }
 
-        if self.debug_level > 1 {
-            println!("Limiting to {}", self.limit);
+        if self.config.debug_level > 1 {
+            println!("Limiting to {}", self.config.limit);
         }
 
-       items.into_iter().take(self.limit).collect()
+       items.into_iter().take(self.config.limit).collect()
     }
 
     pub fn common(&self) -> Vec<&str> {
@@ -115,17 +134,20 @@ impl<> Words<> {
     pub fn rhymes(&self, a: &str, b: &str) -> bool {
         let suffix = self.phoneme_suffix(a);
         let re = Regex::new(&suffix).unwrap();
-        re.is_match(self.find_phoneme(b))
+        re.is_match(self.find_phoneme(b).unwrap())
     }
 
-    pub fn find_rhymes(&self, word: &str) -> Vec<&str> {
-        let phoneme: &str = self.find_phoneme(word);
+    pub fn find_rhymes<'a>(&'a self, word: &'a str) -> Result<Vec<&str>, &str> {
+        let phoneme: &str = match self.find_phoneme(word) {
+            Some(p) => p,
+            None => return Err(word)
+        };
 
         let mut rhymes: Vec<&str> = Vec::new();
 
         let suffix: String = self.phoneme_suffix(phoneme);
 
-        if self.debug_level > 0 {
+        if self.config.debug_level > 0 {
             println!("Suffix: {}", suffix);
         }
 
@@ -137,20 +159,32 @@ impl<> Words<> {
         }
 
         rhymes.sort_by_key(|k| self.phoneme_distance(word, k));
+        // Remove yourself
         rhymes.remove(0);
-        let base = self.phoneme_distance(word,rhymes.first().unwrap()) + 2;
-        rhymes.retain(|x| self.phoneme_distance(x, word) <= base);
 
-        self.compact(rhymes)
+        // Handle empty case here.
+        if rhymes.len() < 1 {
+            return Ok(rhymes)
+        }
+
+        let base = self.phoneme_distance(word, *rhymes.first().unwrap()).unwrap();
+        rhymes.retain(|x| self.phoneme_distance(x, word).unwrap() <= base);
+        Ok(self.compact(rhymes))
     }
 
-    pub fn find_phoneme(&self, word: &str) -> &str {
-        PHONEMES.get(word).expect("{} not found in dictionary")
+    pub fn find_phoneme(&self, word: &str) -> Option<&str> {
+        PHONEMES.get(word).map(|x| *x)
     }
 
-    pub fn phoneme_distance(&self, a: &str, b: &str) -> usize {
-        damerau_levenshtein(self.find_phoneme(a),self.find_phoneme(b))
-    }
+    pub fn phoneme_distance(&self, a: &str, b: &str) -> Result<usize, String > {
+        let (phoneme_a, phoneme_b) = match (self.find_phoneme(a), self.find_phoneme(b)) {
+            (Some(x),Some(y)) => (x,y),
+            (None, None) => return Err(format!("Can't find words: {}, {}", a, b)),
+            (None, _)    => return Err(format!("Can't find word: {}", a)),
+            (_, None)    => return Err(format!("Can't find word: {}", b))
+        };
 
+        Ok(damerau_levenshtein(phoneme_a,phoneme_b))
+    }
 }
 
